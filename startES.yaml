@@ -1,0 +1,77 @@
+---
+- hosts: local
+  vars:
+    # User defined bridge network
+    user_defined_bridge_network: my-net
+
+    # Elastic Search
+    es_image_name: docker.elastic.co/elasticsearch/elasticsearch
+    es_image_tag: 7.0.1
+    es_container_name: elasticsearch
+
+    # Kibana
+    kibana_image_name: docker.elastic.co/kibana/kibana
+    kibana_image_tag: 7.0.1
+    kibana_container_name: kibana
+
+    # Filebeat
+    filebeat_image_name: docker.elastic.co/beats/filebeat
+    filebeat_image_tag: 7.0.1
+    filebeat_container_name: filebeat
+    filebeat_conf: /Users/sudhir/elasticeSearch/filebeat.docker.yml
+
+  # Clean ups of containers 
+  tasks:
+  - name: Stop and remove ES container
+    shell: docker rm -f {{ es_container_name }}
+    ignore_errors: yes
+
+  - name: Stop and remove Kibana container
+    shell: docker rm -f {{ kibana_container_name }}
+    ignore_errors: yes
+
+  - name: Stop and remove Filebeat container
+    shell: docker rm -f {{ filebeat_container_name }}
+    ignore_errors: yes
+
+  - name: Remove user defined bridge network
+    shell: docker network rm {{ user_defined_bridge_network }}  
+    ignore_errors: yes
+
+  # Lunch of new containers
+  - name: Create user defined bridge network
+    shell: docker network create {{ user_defined_bridge_network }}  
+
+  - name: Start ES container
+    shell: >
+      docker run
+      -d 
+      --name {{ es_container_name }}
+      --network {{ user_defined_bridge_network }}
+      -p 9200:9200
+      -p 9300:9300
+      -e "discovery.type=single-node"
+      {{ es_image_name }}:{{ es_image_tag }}
+
+  - name: Start Kibana container linked with ES
+    shell: >
+      docker run
+      -d
+      --name {{ kibana_container_name }}
+      --network {{ user_defined_bridge_network }}  
+      -p 5601:5601
+      -e ELASTICSEARCH_HOSTS=http://{{ es_container_name }}:9200
+      {{ kibana_image_name }}:{{ kibana_image_tag }}
+
+  - name: Start Filebeat container linked with ES and Kibana
+    shell: >
+      docker run
+      -d
+      --name {{ filebeat_container_name }}
+      --network {{ user_defined_bridge_network }}     
+      --user=root \
+      --volume="{{ filebeat_conf }}:/usr/share/filebeat/filebeat.yml:ro" \
+      --volume="/var/lib/docker/containers:/var/lib/docker/containers:ro" \
+      --volume="/var/run/docker.sock:/var/run/docker.sock:ro" \
+      {{ filebeat_image_name }}:{{ filebeat_image_tag }} filebeat -e -strict.perms=false \
+      -E output.elasticsearch.hosts=["{{ es_container_name }}:9200"]  
